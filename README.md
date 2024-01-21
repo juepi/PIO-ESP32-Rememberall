@@ -30,7 +30,7 @@ The `LineCount` must be an integer of 1-3 indicating how much text lines the mes
 ### /Your/Topic/Tree/eventReminder
 This topic contains the deadline (which equals the start date of an event), the start time of the 2 reminder periods and the color which the LED ring should show for the current event. Example:  
 ``65ab999f|65aa481f|65aaf0df|0xFF00FF``  
-Timestamps are encoded in **Unix Epoch time** and in **hexadecimal base** to shorten the strings. The LED color is encoded as `0xRRGGBB`.
+Timestamps are encoded in **Unix Epoch time** and in **hexadecimal base** to shorten the strings. The LED color is encoded as `0xRRGGBB`.  
 **Note:** You should use powerful colors, i've experienced that bright colors tend to look like white on the ring.
 
 ### /Your/Topic/Tree/Status
@@ -56,15 +56,14 @@ This file contains all configurable options for this project like
 The file should be well commented.
 
 ## The Feeder Script
-The PoSh feeder script is designed to be run as a scheduled task once every hour (preferrable at 0 minutes). The script is (hopefully) well documented and should be adopted for your needs in the `Configuration Settings` section. It will handle regular and recurring events, filter the first event from all configured calendars and parse it for the Rememberall according to your configuration.
+The PoSh feeder script is designed to be run as a scheduled task once every hour (preferrable at 0 minutes). The script is (hopefully) well documented and should be adopted for your needs in the `Configuration Settings` section. It will handle regular and recurring events, filter the first event from all configured calendars and parse it for the Rememberall according to your configuration.  
 Note that it requires 2 external libraries for MQTT communication and iCalendar handling:
 
 * [IcalVCard](https://afterlogic.com/mailbee-net/icalvcard) / [NuGet package](https://www.nuget.org/packages/ICalVCard)
 * [M2Mqtt](https://github.com/eclipse/paho.mqtt.m2mqtt) / [NuGet package](https://www.nuget.org/packages/M2Mqtt/)
 
 Place the 2 DLL files in a `lib` subdirectory of the place where the feeder script resides.
-
-
-
+  
+  
 Have fun,  
 Juergen
