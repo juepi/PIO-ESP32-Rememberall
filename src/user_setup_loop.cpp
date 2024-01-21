@@ -1,9 +1,6 @@
 /*
- * ESP32 Template
+ * ESP32 Rememberall
  * ==================
- * User specific function "user_loop" called in main loop
- * User specific funtion "user_setup" called in setup loop
- * Add stuff you want to run here
  */
 #include "setup.h"
 
@@ -17,17 +14,11 @@ ButtonActions ExecButtonActn = B_VOID; // no action when starting
 // Setup ePaper display instance
 SPIClass spi2(HSPI);
 GxEPD2_3C<GxEPD2_213c, GxEPD2_213c::HEIGHT> Display(GxEPD2_213c(D_CS, D_DC, D_RST, D_BUSY)); // GDEW0213Z16 104x212, UC8151 (IL0373)
-// Test Text for Display
-char TextLine[D_CHARS_PER_LINE + 1] = "REMEMBRALL";
 
 // Global string containing text to display
-char taskTxtMsg[MQTT_MAX_MSG_SIZE];
-char taskRemindrMsg[MQTT_MAX_MSG_SIZE];
-
-// Variables that should be saved during DeepSleep
-#ifdef KEEP_RTC_SLOWMEM
-RTC_DATA_ATTR int SaveMe = 0;
-#endif
+char eventTxtMsg[MQTT_MAX_MSG_SIZE];
+char eventReminderMsg[MQTT_MAX_MSG_SIZE];
+char StatusMsg[MQTT_MAX_MSG_SIZE];
 
 /*
  * User Setup function
@@ -46,8 +37,8 @@ void user_setup()
   Button.attachClick(ButtonClickCB);
   // link the long-press function to be called on a long-press event.
   Button.attachLongPressStart(ButtonLongPressCB);
-  // Double click
-  Button.attachDoubleClick(ButtonDoubleClickCB);
+  // Double click - unused
+  // Button.attachDoubleClick(ButtonDoubleClickCB);
   // set 80 msec. debouncing time. Default is 50 msec.
   Button.setDebounceMs(80);
 
@@ -64,80 +55,18 @@ void user_setup()
 void user_loop()
 {
   static bool LedRingEnabled = false;
+  static bool EventAcknowledged = false;
   static uint32_t LastTxtMsgDecoded = 0;
-  static uint32_t LastRemindrMsgDecoded = 0;
+  static uint32_t LastReminderMsgDecoded = 0;
+  static uint32_t LastStatusMsgDecoded = 0;
   static bool RunDisplayRefresh = false;
   static bool RunReminders = false;
-  static taskInfoStruct LocalTaskInfo;
+  static eventInfoStruct LocalEventInfo;
   static bool Cosy = true;
+  static time_t NextWiFiStart = 0;
 
   // keep watching the push button:
   Button.tick();
-
-  // Check if a new task messages arrived
-  if (MqttSubscriptions[I_taskTxtSub].MsgRcvd > LastTxtMsgDecoded)
-  {
-    // New text message arrived, decode and update struct
-    RunDisplayRefresh = DecodeDispTextMsg(taskTxtMsg, &LocalTaskInfo);
-    LastTxtMsgDecoded = MqttSubscriptions[I_taskTxtSub].MsgRcvd;
-  }
-  if (MqttSubscriptions[I_taskRemindrSub].MsgRcvd > LastRemindrMsgDecoded)
-  {
-    // New text message arrived, decode and update struct
-    RunReminders = DecodeReminderMsg(taskRemindrMsg, &LocalTaskInfo);
-    LastRemindrMsgDecoded = MqttSubscriptions[I_taskRemindrSub].MsgRcvd;
-    RunReminders = true;
-  }
-
-  if (RunDisplayRefresh)
-  {
-    // Display text lines according to LineCnt
-    switch (LocalTaskInfo.LineCnt)
-    {
-    case 1:
-      DisplayText(LocalTaskInfo.TextLines[0], LocalTaskInfo.LineCol[0]);
-      break;
-    case 2:
-      DisplayText(LocalTaskInfo.TextLines[0], LocalTaskInfo.LineCol[0],
-                  LocalTaskInfo.TextLines[1], LocalTaskInfo.LineCol[1]);
-      break;
-    case 3:
-      DisplayText(LocalTaskInfo.TextLines[0], LocalTaskInfo.LineCol[0],
-                  LocalTaskInfo.TextLines[1], LocalTaskInfo.LineCol[1],
-                  LocalTaskInfo.TextLines[2], LocalTaskInfo.LineCol[2]);
-      break;
-    }
-    RunDisplayRefresh = false;
-  }
-
-  // Run LED Ring Reminder
-  if (RunReminders)
-  {
-    if (EpochTime > LocalTaskInfo.Deadline)
-    {
-      // it's too late..
-      RunReminders = false;
-      digitalWrite(EMB_PWS_U2, LOW); // Power down LED ring
-      fill_solid(LedRing, FL_RING_NUM_LEDS, CRGB::Black);
-      LedRingEnabled = false;
-    }
-    else if (EpochTime > LocalTaskInfo.CosyReminder && EpochTime < LocalTaskInfo.AgressiveReminder)
-    {
-      // Fire up cosy reminder
-      digitalWrite(EMB_PWS_U2, HIGH); // Power up LED ring
-      delay(20);
-      LedRingEnabled = true;
-      Cosy = true;
-    }
-    else
-    {
-      // Fire up agressive reminder
-      digitalWrite(EMB_PWS_U2, HIGH); // Power up LED ring
-      delay(20);
-      LedRingEnabled = true;
-      Cosy = false;
-    }
-  }
 
   // Execute Button action if requested
   switch (ExecButtonActn)
@@ -148,32 +77,134 @@ void user_loop()
     if (NetState != NET_DOWN)
     {
       wifi_down();
+      NextWiFiStart = EpochTime + WIFI_SLEEP_DURATION;
     }
     else
     {
-      wifi_up();
+      // Force WiFi restart
+      NextWiFiStart = 0;
     }
     ExecButtonActn = B_VOID;
     break;
-  case B_LEDR_TOGGLE:
-    if (LedRingEnabled)
+  case B_ACK_EVENT:
+    EventAcknowledged = true;
+    if (NetState == NET_UP)
     {
-      LedRingEnabled = false;
-      digitalWrite(EMB_PWS_U2, LOW);
+      // Send event confirmation to broker (and make sure it's been sent)
+      while (!mqttClt.publish(Status_topic, String("ack").c_str(), true))
+      {
+        MqttDelay(250);
+      }
+      // Add some more delay just to make sure..
+      MqttDelay(300);
+      // ..and sleep for a while
+      esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
+    }
+    else
+    {
+      // Force WiFi restart
+      NextWiFiStart = 0;
+    }
+    ExecButtonActn = B_VOID;
+    break;
+  }
+
+  // check Status message
+  if (MqttSubscriptions[I_StatusSub].MsgRcvd > LastStatusMsgDecoded)
+  {
+    if (strcmp(StatusMsg, "ack") == 0)
+    {
+      // Status of current event has already been acknowledged (in a previous activeReminderPeriod)
+      EventAcknowledged = true;
+    }
+    else
+    {
+      EventAcknowledged = false;
+    }
+    LastStatusMsgDecoded = MqttSubscriptions[I_StatusSub].MsgRcvd;
+  }
+
+  // Check if a new event messages arrived only if we have valid local time
+  if (MqttSubscriptions[I_eventReminderSub].MsgRcvd > LastReminderMsgDecoded && NTPSyncCounter > 0)
+  {
+    // New text message arrived, decode and update struct
+    RunReminders = DecodeReminderMsg(eventReminderMsg, &LocalEventInfo);
+    LastReminderMsgDecoded = MqttSubscriptions[I_eventReminderSub].MsgRcvd;
+  }
+  if (MqttSubscriptions[I_eventTxtSub].MsgRcvd > LastTxtMsgDecoded && NTPSyncCounter > 0)
+  {
+    // New text message arrived, decode and update struct
+    RunDisplayRefresh = DecodeDispTextMsg(eventTxtMsg, &LocalEventInfo);
+    LastTxtMsgDecoded = MqttSubscriptions[I_eventTxtSub].MsgRcvd;
+  }
+
+  // Run LED Ring Reminder
+  if (RunReminders && NTPSyncCounter > 0)
+  {
+    if (EpochTime > LocalEventInfo.Deadline || EventAcknowledged)
+    {
+      // it's too late.. or event acknowledged by user
+      RunReminders = false;
+      digitalWrite(EMB_PWS_U2, LOW); // Power down LED ring
       fill_solid(LedRing, FL_RING_NUM_LEDS, CRGB::Black);
+      LedRingEnabled = false;
+      // Initiate display refresh (clear)
+      RunDisplayRefresh = true;
+    }
+    else if (EpochTime > LocalEventInfo.CosyReminder && EpochTime < LocalEventInfo.AgressiveReminder)
+    {
+      // Fire up cosy reminder
+      if (!LedRingEnabled)
+      {
+        digitalWrite(EMB_PWS_U2, HIGH); // Power up LED ring
+        delay(20);
+        LedRingEnabled = true;
+        // DEBUG_PRINTLN("COSY; LEDColor = " + String(LocalEventInfo.LedColor, HEX));
+      }
+      Cosy = true;
     }
     else
     {
-      LedRingEnabled = true;
-      digitalWrite(EMB_PWS_U2, HIGH); // Power up LED ring
-      delay(20);
+      // Fire up agressive reminder
+      if (!LedRingEnabled)
+      {
+        digitalWrite(EMB_PWS_U2, HIGH); // Power up LED ring
+        delay(20);
+        LedRingEnabled = true;
+        // DEBUG_PRINTLN("AGGRO; LEDColor = " + String(LocalEventInfo.LedColor, HEX));
+      }
+      Cosy = false;
     }
-    ExecButtonActn = B_VOID;
-    break;
-  case B_DISP_REFRESH:
-    DisplayText(TextLine, GxEPD_BLACK, TextLine, GxEPD_RED, TextLine, GxEPD_BLACK);
-    ExecButtonActn = B_VOID;
-    break;
+  }
+
+  if (RunDisplayRefresh && NTPSyncCounter > 0 && LastReminderMsgDecoded > 0)
+  {
+    if (EpochTime > LocalEventInfo.Deadline || EventAcknowledged)
+    {
+      // Event started in the past or has been acknowledged by the user, clear screen
+      Display.clearScreen();
+      Display.hibernate();
+    }
+    else
+    {
+      // Display text lines according to LineCnt
+      switch (LocalEventInfo.LineCnt)
+      {
+      case 1:
+        DisplayText(LocalEventInfo.TextLines[0], LocalEventInfo.LineCol[0]);
+        break;
+      case 2:
+        DisplayText(LocalEventInfo.TextLines[0], LocalEventInfo.LineCol[0],
+                    LocalEventInfo.TextLines[1], LocalEventInfo.LineCol[1]);
+        break;
+      case 3:
+        DisplayText(LocalEventInfo.TextLines[0], LocalEventInfo.LineCol[0],
+                    LocalEventInfo.TextLines[1], LocalEventInfo.LineCol[1],
+                    LocalEventInfo.TextLines[2], LocalEventInfo.LineCol[2]);
+        break;
+      }
+    }
+    RunDisplayRefresh = false;
   }
 
   if (LedRingEnabled)
@@ -189,16 +220,65 @@ void user_loop()
     {
       pos = beatsin16(FL_RING_BEATSIN_AGGRO, 0, FL_RING_NUM_LEDS - 1);
     }
-    LedRing[pos] += CRGB(LocalTaskInfo.LedColor);
+    LedRing[pos] += CRGB(LocalEventInfo.LedColor);
     // fill_rainbow_circular(LedRing, FL_RING_NUM_LEDS, millis() / 15);
     FastLED.show();
   }
 
+  // Handle WiFi
+  // WiFi currently off, start it at scheduled NextWiFiStart
+  if (EpochTime > NextWiFiStart && NetState == NET_DOWN)
+  {
+    wifi_up();
+    LastReminderMsgDecoded = 0;
+    LastTxtMsgDecoded = 0;
+    LastStatusMsgDecoded = 0;
+    if (EventAcknowledged)
+    {
+      delay(200);
+      // Send event confirmation to broker (and make sure it's been sent)
+      while (!mqttClt.publish(Status_topic, String("ack").c_str(), true))
+      {
+        MqttDelay(250);
+      }
+      // Add some more delay just to make sure..
+      MqttDelay(300);
+      // ..and sleep for a while
+      esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
+    }
+  }
+  else
+  {
+    // In case all network traffic has been handled, WiFi can be disabled for WIFI_SLEEP_DURATION
+    if (LastStatusMsgDecoded > 0 && LastReminderMsgDecoded > 0 && LastTxtMsgDecoded > 0 && NTPSyncCounter > 0)
+    {
+      // Check if the currently handled event has ended or is already acknowledged, in that case DeepSleep for WIFI_SLEEP_DURATION
+      if (EpochTime > LocalEventInfo.Deadline || EventAcknowledged)
+      {
+        esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
+      }
+      else
+      {
+        wifi_down();
+        NextWiFiStart = EpochTime + WIFI_SLEEP_DURATION;
+      }
+    }
+  }
+
+  // If Infos are missing, add some delay for WiFi background tasks
+  if (LastStatusMsgDecoded == 0 || LastReminderMsgDecoded == 0 || LastTxtMsgDecoded == 0)
+  {
 #ifdef ONBOARD_LED
-  // Toggle LED at each loop if WiFi is up
+    ToggleLed(LED, 50, 2);
+#else
+    delay(100);
+#endif
+  }
+
+#ifdef ONBOARD_LED
   if (NetState == NET_UP)
   {
-    ToggleLed(LED, 1, 1);
+    digitalWrite(LED, LEDON);
   }
   else
   {
@@ -207,13 +287,16 @@ void user_loop()
 #endif
 }
 
+// ======================================================================================================
+// =========================== User Functions ===========================================================
+// ======================================================================================================
 //
 // Button callback functions
 //
 void ButtonClickCB()
 {
   // Toggle LedRing on short press
-  ExecButtonActn = B_LEDR_TOGGLE;
+  ExecButtonActn = B_ACK_EVENT;
 }
 
 void ButtonLongPressCB()
@@ -222,18 +305,12 @@ void ButtonLongPressCB()
   ExecButtonActn = B_WIFI_TOGGLE;
 }
 
-void ButtonDoubleClickCB()
-{
-  // Update display on double click
-  ExecButtonActn = B_DISP_REFRESH;
-}
-
 //
 // Print text on Display
 //
 void DisplayText(char *Text, uint16_t Color)
 {
-  // 1 is an alias for red (to shorten data in JSON message)
+  // 1 is an alias for red (to shorten data in MQTT message)
   Color = (Color == 1) ? GxEPD_RED : Color;
   Display.setRotation(D_LANDSCAPE_ROT);
   Display.setFont(&FreeMonoBold18pt7b);
@@ -257,7 +334,7 @@ void DisplayText(char *Text, uint16_t Color)
 
 void DisplayText(char *Line1, uint16_t L1Color, char *Line2, uint16_t L2Color)
 {
-  // 1 is an alias for red (to shorten data in JSON message)
+  // 1 is an alias for red (to shorten data in MQTT message)
   L1Color = (L1Color == 1) ? GxEPD_RED : L1Color;
   L2Color = (L2Color == 1) ? GxEPD_RED : L2Color;
 
@@ -282,7 +359,7 @@ void DisplayText(char *Line1, uint16_t L1Color, char *Line2, uint16_t L2Color)
 
 void DisplayText(char *Line1, uint16_t L1Color, char *Line2, uint16_t L2Color, char *Line3, uint16_t L3Color)
 {
-  // 1 is an alias for red (to shorten data in JSON message)
+  // 1 is an alias for red (to shorten data in MQTT message)
   L1Color = (L1Color == 1) ? GxEPD_RED : L1Color;
   L2Color = (L2Color == 1) ? GxEPD_RED : L2Color;
   L3Color = (L3Color == 1) ? GxEPD_RED : L3Color;
@@ -307,7 +384,7 @@ void DisplayText(char *Line1, uint16_t L1Color, char *Line2, uint16_t L2Color, c
   Display.hibernate();
 }
 
-bool DecodeDispTextMsg(char *msg, taskInfoStruct *TaskData)
+bool DecodeDispTextMsg(char *msg, eventInfoStruct *EventData)
 {
   char *tokens[6]; // maximum number of allowed tokens (2 more than expected)
   char *ptr = NULL;
@@ -325,8 +402,8 @@ bool DecodeDispTextMsg(char *msg, taskInfoStruct *TaskData)
   if (LineCount > 0 && LineCount < 4 && LineCount == (index - 1))
   {
     // LineCount is OK and appropiate amount of tokens available
-    // Fill our taskInfoStruct with the available data
-    TaskData->LineCnt = LineCount;
+    // Fill our eventInfoStruct with the available data
+    EventData->LineCnt = LineCount;
     for (int i = 0; i < LineCount; i++)
     {
       // Split text color and text (ColorNum;Text)
@@ -344,9 +421,9 @@ bool DecodeDispTextMsg(char *msg, taskInfoStruct *TaskData)
       if (idx2 == 2)
       {
         // First token is text color for this line
-        TaskData->LineCol[i] = (uint16_t)atoi(tok2[0]);
+        EventData->LineCol[i] = (uint16_t)atoi(tok2[0]);
         // Second token is the text itself
-        strcpy(TaskData->TextLines[i], tok2[1]);
+        strcpy(EventData->TextLines[i], tok2[1]);
       }
       else
       {
@@ -363,7 +440,7 @@ bool DecodeDispTextMsg(char *msg, taskInfoStruct *TaskData)
   return true;
 }
 
-bool DecodeReminderMsg(char *msg, taskInfoStruct *TaskData)
+bool DecodeReminderMsg(char *msg, eventInfoStruct *EventData)
 {
   char *tokens[6]; // maximum number of allowed tokens (2 more than expected)
   char *ptr = NULL;
@@ -383,10 +460,10 @@ bool DecodeReminderMsg(char *msg, taskInfoStruct *TaskData)
   }
   else
   {
-    TaskData->Deadline = (time_t)strtol(String(tokens[0]).c_str(), NULL, 16);
-    TaskData->CosyReminder = (time_t)strtol(String(tokens[1]).c_str(), NULL, 16);
-    TaskData->AgressiveReminder = (time_t)strtol(String(tokens[2]).c_str(), NULL, 16);
-    TaskData->LedColor = (uint32_t)strtol(String(tokens[3]).c_str(), NULL, 16);
+    EventData->Deadline = (time_t)strtol(String(tokens[0]).c_str(), NULL, 16);
+    EventData->CosyReminder = (time_t)strtol(String(tokens[1]).c_str(), NULL, 16);
+    EventData->AgressiveReminder = (time_t)strtol(String(tokens[2]).c_str(), NULL, 16);
+    EventData->LedColor = (uint32_t)strtol(String(tokens[3]).c_str(), NULL, 16);
   }
   return true;
 }

@@ -88,21 +88,26 @@ void loop()
       DEBUG_PRINTLN("VCC = " + String(VCC) + " V");
     }
 #endif
+  }
+
 #ifdef NTP_CLT
-    // Update time variables with a timeout of 200ms
+  // Update time vars also when WiFi is off
+  time(&EpochTime);
+  // Update time variables with a timeout of 200ms
+  // getLocalTime() doesn't normally seem to cause delay..
+  getLocalTime(&TimeInfo, 200);
+  if (TimeInfo.tm_year > 2023)
+  {
+    // System time is in the past, somethings wrong - retry
     getLocalTime(&TimeInfo, 200);
-    time(&EpochTime);
-    if (EpochTime < 1704300000)
+    if (TimeInfo.tm_year > 2023)
     {
-      // System time is in the past, somethings wrong - retry
-      getLocalTime(&TimeInfo, 200);
-      time(&EpochTime);
-      if (EpochTime < 1704300000)
-      {
-        DEBUG_PRINTLN("Wrong system time, invalidating local time and retry in next loop");
-        NTPSyncCounter = 0;
-      }
+      DEBUG_PRINTLN("Wrong system time, invalidating local time and retry in next loop");
+      NTPSyncCounter = 0;
     }
+  }
+  // Prints formatted date and time
+  //DEBUG_PRINTLN(&TimeInfo, "%A, %B %d %Y %H:%M:%S");
 #endif
 #ifdef MEASURE_SLEEP_CLOCK_SKEW
     static bool SkewDataSent = false;
@@ -117,7 +122,6 @@ void loop()
       }
     }
 #endif
-  }
 
 //
 // Handle user_loop
@@ -166,7 +170,7 @@ void loop()
   // disconnect WiFi and go to sleep
   DEBUG_PRINTLN("Good night for " + String(DS_DURATION_MIN) + " minutes.");
   wifi_down();
-  esp_deep_sleep((uint64_t)DS_DURATION_MIN * 60000000);
+  esp_deep_sleep((uint64_t)DS_DURATION_MIN * 60000000ULL);
 #endif
 
   // First iteration of main loop finished

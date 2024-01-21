@@ -23,7 +23,7 @@
 //
 
 #ifdef SLEEP_UNTIL
-const int SubscribedTopicCnt = 5; // Overall amount of topics to subscribe to
+const int SubscribedTopicCnt = 6; // Overall amount of topics to subscribe to
 #else
 const int SubscribedTopicCnt = 2; // Overall amount of topics to subscribe to
 #endif
@@ -34,6 +34,7 @@ MqttSubCfg MqttSubscriptions[SubscribedTopicCnt]={
 #endif
     {.Topic = ota_topic, .Type = 0, .Subscribed = false, .MsgRcvd = 0, .BoolPtr = &OTAupdate },
     {.Topic = otaInProgress_topic, .Type = 0, .Subscribed = false, .MsgRcvd = 0, .BoolPtr = &OtaInProgress },
-    {.Topic = taskTxt_topic, .Type = 4, .Subscribed = false, .MsgRcvd = 0, .stringPtr = &taskTxtMsg[0] },
-    {.Topic = taskReminder_topic, .Type = 4, .Subscribed = false, .MsgRcvd = 0, .stringPtr = &taskRemindrMsg[0] }
+    {.Topic = eventTxt_topic, .Type = 4, .Subscribed = false, .MsgRcvd = 0, .stringPtr = &eventTxtMsg[0] },
+    {.Topic = eventReminder_topic, .Type = 4, .Subscribed = false, .MsgRcvd = 0, .stringPtr = &eventReminderMsg[0] },
+    {.Topic = Status_topic, .Type = 4, .Subscribed = false, .MsgRcvd = 0, .stringPtr = &StatusMsg[0] }
 };
