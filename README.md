@@ -1,6 +1,6 @@
 # PIO-ESP32-Rememberall
 The Rememberall - equipped with a WS2812 LED ring and a ePaper display - will help you keeping track of easily forgotten events.  
-The project includes a PowerShell based feeder script which allows you to load events from multiple iCal calendar files (or URLs, in example google calendars), find the next upcoming event and send the processed data to your MQTT broker where the Rememberall will pick it up.
+The project includes a PowerShell based feeder script which allows you to load events from multiple iCal calendar files (or URLs, in example google calendars), find the next upcoming event and send the processed data to your MQTT broker where the Rememberall will pick it up.  
 **Note:** This project requires a NTP server (either local or internet).
 
 ## Design Goals
