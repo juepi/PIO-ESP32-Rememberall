@@ -8,7 +8,7 @@
 CRGB LedRing[FL_RING_NUM_LEDS];
 
 // Setup OneButton instance
-OneButtonTiny Button(EMB_SW1, true);
+OneButtonTiny Button(BUTTON_GPIO, true, true); // setup active low button with internal pullup enabled
 ButtonActions ExecButtonActn = B_VOID; // no action when starting
 
 // Setup ePaper display instance

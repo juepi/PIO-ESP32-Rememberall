@@ -44,12 +44,23 @@
 #define FL_RING_BEATSIN_COSY 12  // Beatsin slow speed for cosy reminder
 #define FL_RING_BEATSIN_AGGRO 32 // Beatsin fast speed for agressive reminder
 
+//
+// Button Configuration
+//
+#define BUTTON_GPIO 12 // other wire of the pushbutton needs to be wired to GND - shorting the button pulls GPIO LOW
+
 // Globar char arrays for topics containing ePaper text and appointment infos
 // larger MQTT_MAX_MSG_SIZE required
 #define MQTT_MAX_MSG_SIZE 64
 extern char eventTxtMsg[MQTT_MAX_MSG_SIZE];
 extern char eventReminderMsg[MQTT_MAX_MSG_SIZE];
 extern char StatusMsg[MQTT_MAX_MSG_SIZE];
+
+//
+// MQTT Topic tree prepended to all topics
+// ATTN: Must end with "/"!
+//
+#define TOPTREE "HB7/Indoor/VZ/Rememberall/"
 
 // MQTT Topic to receive event infos
 // Message format for eventTxt: "LineCount|ColorLine1;TextLine1|ColorLine2;TextLine2|..."

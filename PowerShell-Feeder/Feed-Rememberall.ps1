@@ -1,4 +1,4 @@
-#########################################################
+﻿#########################################################
 ##                Rememberall Feeder
 ##    https://github.com/juepi/PIO-ESP32-Rememberall
 #########################################################
@@ -50,7 +50,7 @@ $Config = @{
 $MQTT = @{}
 $MQTT.Broker = "your.broker"
 $MQTT.ClientID = "$ENV:COMPUTERNAME"
-$MQTT.TopicTree = "HB7/Test"
+$MQTT.TopicTree = "HB7/Indoor/VZ/Rememberall"
 $MQTT.t_Reminder = "$($MQTT.TopicTree)/eventReminder"
 $MQTT.t_Txt = "$($MQTT.TopicTree)/eventTxt"
 $MQTT.t_SleepUntil = "$($MQTT.TopicTree)/SleepUntil"
@@ -255,7 +255,7 @@ function Calculate-SleepUntil {
         $ActiveEvent = $false
     )    
 
-    # Check if we're currently within a ActiveReminderPeriod and if there are active events
+    # If there's an active event, check if we're within a ActiveReminderPeriod
     if ($ActiveEvent) {
         for ($i = 0 ; $i -lt $Config.ActiveReminderHours.Start.Count ; $i++) {
             if ((Get-Date).Hour -ge $Config.ActiveReminderHours.Start[$i] -and (Get-Date).Hour -le $Config.ActiveReminderHours.End[$i]) {
@@ -268,7 +268,6 @@ function Calculate-SleepUntil {
     # Identify start of next ActiveReminderPeriod
     for ($i = 0 ; $i -lt $Config.ActiveReminderHours.Start.Count ; $i++) {
         $SleepSeconds = [int]([Math]::Round((New-TimeSpan -Start (Get-Date) -End (Get-Date -Hour $Config.ActiveReminderHours.Start[$i] -Minute 0 -Second 0)).TotalSeconds, 0))
-        
         if ( $SleepSeconds -lt 0) {
             # TimeSpan negative -> Start time in the past
             continue
@@ -344,7 +343,6 @@ for ($i = 1 ; $i -lt $NextEventCandidates.Count; $i++) {
 Write-Host "Handling Event [$($NextEvent.Summary)] starting at $($NextEvent.Start)" -ForegroundColor Green
 
 # Check if the event is within the Cosy reminder period
-# DTStart.Local is a normal System.DateTime object which contains start time in current time zone
 if ($NextEvent.Start -lt [DateTime]::Now.AddHours($Config.CosyReminderPeriod)) {
     #Filter category and extract required text from events "Summary" field
     $SendMe = Get-EventInfo -Event $NextEvent -EventFilter $EventFilter
@@ -374,13 +372,9 @@ if ($NextEvent.Start -lt [DateTime]::Now.AddHours($Config.CosyReminderPeriod)) {
         }
     }
     # Finally, handle SleepUntil for Rememberall
-    # SleepUntil will not be updated if the Rememberall is supposed to be awake (i.e. active event and within ReminderPeriod)
-    # except the current event has already been acknowledged on the Rememberall
     $SleepUntil = $(Calculate-SleepUntil -Config $Config -ActiveEvent $EventIsActive)
-    if ($SleepUntil -ne 0) {
-        $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
-        Write-Host "Inactive time, SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
-    }
+    $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
+    Write-Host "SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
 }
 else {
     # The event is further in the future, sleep until the next ActiveReminderPeriod

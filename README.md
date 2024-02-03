@@ -4,7 +4,7 @@ The project includes a PowerShell based feeder script which allows you to load e
 **Note:** This project requires a NTP server (either local or internet).
 
 ## Design Goals
-The Rememberall has been designed to run on a WEMOS S2 Mini plugged in a ESP-Mini-Base. The whole setup is powered by a single LFP cell (in my case a 32700 round cell with 6Ah). To maximize battery lifetime, the code has been designed put the ESP in DeepSleep as much as possible and also reduce power usage by enabling WiFi only from time to time to check für updates. To further reduce power requirements, the ESP's CPU clock has been limited to 80MHz (see `platformio.ini`).
+The Rememberall has been designed to run on a WEMOS S2 Mini plugged in a [ESP-Mini-Base](https://github.com/juepi/ESP-Mini-Base). The whole setup is powered by a single LFP cell (in my case two 32700 round cells in parallel). To maximize battery lifetime, the code has been designed put the ESP in DeepSleep as much as possible and also reduce power usage by enabling WiFi only from time to time to check für updates. To further reduce power requirements, the ESP's CPU clock has been limited to 80MHz (see `platformio.ini`).
 The code is based on my [PIO-ESP32-Template](https://github.com/juepi/PIO-ESP32-Template), also consult the readme in that repo for requirements and flashing guide.
 
 ## Hardware
@@ -35,7 +35,7 @@ Timestamps are encoded in **Unix Epoch time** and in **hexadecimal base** to sho
 
 ### /Your/Topic/Tree/Status
 This topic is basically used as a "reminder flag" for the Rememberall. You can use the button on the Rememberall to acknowledge the current event (short press on the button), where the following will happen:
-* Rememberall sets the Status topic to `ack` (retained)
+* Rememberall sets the `Status` topic to `ack` (retained)
 * Rememberall stops reminding by disabling the LED ring and clearing the display
 * Rememberall will go to sleep for `WIFI_SLEEP_DURATION` (30 minutes by default)
 
@@ -62,8 +62,24 @@ Note that it requires 2 external libraries for MQTT communication and iCalendar 
 * [IcalVCard](https://afterlogic.com/mailbee-net/icalvcard) / [NuGet package](https://www.nuget.org/packages/ICalVCard)
 * [M2Mqtt](https://github.com/eclipse/paho.mqtt.m2mqtt) / [NuGet package](https://www.nuget.org/packages/M2Mqtt/)
 
-Place the 2 DLL files in a `lib` subdirectory of the place where the feeder script resides.
-  
+Place the 2 DLL files in a `lib` subdirectory of the place where the feeder script resides.  
+**Note:** In order to make the german "umlauts conversion" work correctly, you need to make sure that the script is saved **UTF8-BOM** encoded locally.
+
+## Photos
+Here are 2 photos from my Rememberall:
+
+Front             |  Back
+:-------------------------:|:-------------------------:
+![Front](pics/Rememberall_front.jpg?raw=true) | ![Back](pics/Rememberall_back.jpg?raw=true)
+
+## Changelog
+
+### v1.0.1
+- Minor code changes (final MQTT topic tree, external button)
+- Feeder script encoding fixed
+- Added fotos of finalized hardware
+- Updated Readme
+
   
 Have fun,  
 Juergen
