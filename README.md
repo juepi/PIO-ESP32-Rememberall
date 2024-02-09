@@ -12,6 +12,7 @@ The code is based on my [PIO-ESP32-Template](https://github.com/juepi/PIO-ESP32-
 * [ESP-Mini-Base](https://github.com/juepi/ESP-Mini-Base) (optional)
 * [WaveShare GDEW0213Z16 2.13"](https://www.waveshare.com/product/displays/e-paper/epaper-3/2.13inch-e-paper-hat-g.htm) 3-color ePaper display
 * WS2812 RGB LED-Ring with 32 LEDs (AliExpress, Amazon etc.)
+* Non-latching Pushbutton and LED (both optionally)
 
 **Note:** The ESP-Mini-Base is optional. If you do not plan to use it, you have to take care of:  
 * Reading VCC (external attenuator 12k / 3k6 voltage divider, 100nF ceramic capacitor recommended on ESP ADC pin)
@@ -65,6 +66,13 @@ Note that it requires 2 external libraries for MQTT communication and iCalendar 
 Place the 2 DLL files in a `lib` subdirectory of the place where the feeder script resides.  
 **Note:** In order to make the german "umlauts conversion" work correctly, you need to make sure that the script is saved **UTF8-BOM** encoded locally.
 
+## Pushbutton functions
+The (optional) pushbutton has 2 functions:
+* Short Press: acknowledge the current event as described above
+* Long Press: Toggle WiFi up/down (useful e.g. for OTA-flashing)
+
+Note that the pushbutton cannot wake the ESP while in DeepSleep, so the button will only react during active reminding periods.
+
 ## Photos
 Here are 2 photos from my Rememberall:
 
@@ -80,6 +88,9 @@ Front             |  Back
 - Added fotos of finalized hardware
 - Updated Readme
 
+### v1.0.2
+- Bugfix: WiFi did not wake up after `WIFI_SLEEP_DURATION`
+- Updated readme with pushbutton functionality
   
 Have fun,  
 Juergen

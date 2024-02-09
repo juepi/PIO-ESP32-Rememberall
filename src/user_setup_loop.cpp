@@ -9,7 +9,7 @@ CRGB LedRing[FL_RING_NUM_LEDS];
 
 // Setup OneButton instance
 OneButtonTiny Button(BUTTON_GPIO, true, true); // setup active low button with internal pullup enabled
-ButtonActions ExecButtonActn = B_VOID; // no action when starting
+ButtonActions ExecButtonActn = B_VOID;         // no action when starting
 
 // Setup ePaper display instance
 SPIClass spi2(HSPI);
@@ -77,7 +77,7 @@ void user_loop()
     if (NetState != NET_DOWN)
     {
       wifi_down();
-      NextWiFiStart = EpochTime + WIFI_SLEEP_DURATION;
+      NextWiFiStart = EpochTime + (time_t)WIFI_SLEEP_DURATION;
     }
     else
     {
@@ -247,21 +247,18 @@ void user_loop()
       esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
     }
   }
-  else
+  // In case all network traffic has been handled, WiFi can be disabled for WIFI_SLEEP_DURATION
+  else if (LastStatusMsgDecoded > 0 && LastReminderMsgDecoded > 0 && LastTxtMsgDecoded > 0 && NTPSyncCounter > 0 && NetState != NET_DOWN)
   {
-    // In case all network traffic has been handled, WiFi can be disabled for WIFI_SLEEP_DURATION
-    if (LastStatusMsgDecoded > 0 && LastReminderMsgDecoded > 0 && LastTxtMsgDecoded > 0 && NTPSyncCounter > 0)
+    // Check if the currently handled event has ended or is already acknowledged, in that case DeepSleep for WIFI_SLEEP_DURATION
+    if (EpochTime > LocalEventInfo.Deadline || EventAcknowledged)
     {
-      // Check if the currently handled event has ended or is already acknowledged, in that case DeepSleep for WIFI_SLEEP_DURATION
-      if (EpochTime > LocalEventInfo.Deadline || EventAcknowledged)
-      {
-        esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
-      }
-      else
-      {
-        wifi_down();
-        NextWiFiStart = EpochTime + WIFI_SLEEP_DURATION;
-      }
+      esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
+    }
+    else
+    {
+      wifi_down();
+      NextWiFiStart = EpochTime + (time_t)WIFI_SLEEP_DURATION;
     }
   }
 
