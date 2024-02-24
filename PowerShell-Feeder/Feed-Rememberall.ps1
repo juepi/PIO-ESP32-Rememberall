@@ -1,13 +1,15 @@
-﻿#########################################################
+﻿########################################################################
 ##                Rememberall Feeder
 ##    https://github.com/juepi/PIO-ESP32-Rememberall
-#########################################################
+########################################################################
 ## This script takes ICS URLs/files as source to
 ## feed the Rememberall with display text and Reminders
 ## schedule this script to run every full hour
 ## it will find the next upcoming event of all configured
 ## calendars and prepares it for the Rememberall
-#########################################################
+## ATTENTION: Make sure to save this script UTF8-BOM encoded!
+## Else "umlaut converter" (Convert-Trim-String) will probably not work!
+#########################################################################
 # This scipt requires:
 # =====================
 # IcalVCard https://afterlogic.com/mailbee-net/icalvcard / https://www.nuget.org/packages/ICalVCard
@@ -16,7 +18,8 @@
 # lastly, a local MQTT broker is also required of course..
 
 Param(
-    [parameter(Mandatory = $false)]$ForceUpdate = $false # forces refresh of MQTT topics; not needed for normal use
+    [parameter(Mandatory = $false)][switch]$ForceUpdate, # forces refresh of MQTT topics (also resets acknowledged events!); not needed for normal use
+    [parameter(Mandatory = $false)][switch]$WhatIf # Do not publish to broker; for debugging purpose
 )
 
 # ===============================================================================
@@ -39,18 +42,19 @@ $Config = @{
     AggroReminderPeriod = 12; # aggressive reminder 12hrs before event starts
     PreviewPeriod       = 24; # If no event is within PreviewPeriod + CosyReminderPeriod the Rememberall will sleep for PreviewPeriod hours
     maxCharsPerLine     = 10; # max amount of characters displayable in 1 ePaper line of the Rememberall
+    maxLines            = 3; # max number of lines that can be displayed
     eventAckStr         = "ack"; # filtered string of t_Status; at match, current event has been acknowledged on the Rememberall
     ActiveReminderHours = [ordered]@{
-        Start = @(5, 17); # Rememberall will be active during these times
-        End   = @(8, 21)  # example: from 5:00 to 8:59 and 17:00 to 21:59; enter desired ranges **ascending**
+        Start = @(5, 18); # Rememberall will be active during these times
+        End   = @(7, 20)  # example: from 5:00 to 8:59 and 17:00 to 21:59; enter desired ranges **ascending**
     };
 }
 
 #MQTT Settings
 $MQTT = @{}
-$MQTT.Broker = "your.broker"
+$MQTT.Broker = "your-mqtt-broker"
 $MQTT.ClientID = "$ENV:COMPUTERNAME"
-$MQTT.TopicTree = "HB7/Indoor/VZ/Rememberall"
+$MQTT.TopicTree = "topic/tree/Rememberall"
 $MQTT.t_Reminder = "$($MQTT.TopicTree)/eventReminder"
 $MQTT.t_Txt = "$($MQTT.TopicTree)/eventTxt"
 $MQTT.t_SleepUntil = "$($MQTT.TopicTree)/SleepUntil"
@@ -69,11 +73,11 @@ $EventFilter = [ordered]@{
         TXTSuffix = @('') # Text line suffixed
     };
     Household = @{
-        Regex     = @('Biotonne', 'Restmüll', 'gelber'); # you can have multiple types in a category
+        Regex     = @('Biomüll', 'Restmüll', 'gelber'); # you can have multiple types in a category
         LEDColor  = @('0x00FF00', '0x0000FF', '0xFFFF00'); # with different colors/prefixes/suffixes assigned
         TXTColor  = @(1, 1, 1);
-        TXTPrefix = @('' , '', '');
-        TXTSuffix = @('0;raus!', '0;Tonne raus', '0;Sack raus!')
+        TXTPrefix = @('0;Tonne' , '0;Tonne', '');
+        TXTSuffix = @('0;raus!', '0;raus!', '0;raus!')
     };
     Birthdays = @{
         Regex     = @('Geburtstag');
@@ -89,19 +93,19 @@ $EventFilter = [ordered]@{
         TXTPrefix = @('1;Termin:');
         TXTSuffix = @('')
     };
-    Others    = @{ # NOTE: This must be the LAST category in the Hashtable!
+    Others    = @{ # NOTE: This must be the LAST category in the EventFilter hashtable!
         Regex     = @('.*'); # Fallback for events where no other category matches
         LEDColor  = @('0xFF00FF');
-        TXTColor  = @(0);
-        TXTPrefix = @('0;Ereignis:');
+        TXTColor  = @(1);
+        TXTPrefix = @('');
         TXTSuffix = @('')
     };
 }
 
 # ICS Calendar sources
 $Calendars = [ordered]@{
-    gcal  = @{
-        URL = "https://calendar.google.com/calendar/ical/xxx/basic.ics" # you can get the URL of your personal google calendars in the calendar settings
+    gcal    = @{
+        URL = "https://calendar.google.com/calendar/ical/xy%40gmail.com/private-xxx/basic.ics" #private google calendar URLs can be obtained in the google calendar settings
     };
     bdays = @{
         File = "$($Config.IcsDir)\bdays.ics"
@@ -190,29 +194,42 @@ function Get-EventInfo {
         for ($i = 0; $i -lt $EventFilter.$Category.Regex.Count ; $i++) {
             if ($Event.Summary -imatch $EventFilter.$Category.Regex[$i]) {
                 # match found, fill Text Lines
+                $TextLines = 0
+                $HasPrefix = $false
+                $HasSuffix = $false
+
                 if ($EventFilter.$Category.TXTPrefix[$i].Length -gt 0) {
-                    # LC_Ph will be replaced with the final amount of text lines at the end
-                    $EventInfo.Text.Msg = "LC_Ph|" + $(Convert-Trim-String $EventFilter.$Category.TXTPrefix[$i] -Length ($Config.maxCharsPerLine + 2)) # TXTPrefix also contains color, thus +2 chars
-                    $TextLines = 1
+                    $HasPrefix = $true
+                    $TextLines++
+
+                }
+                if ($EventFilter.$Category.TXTSuffix[$i].Length -gt 0) {
+                    $HasSuffix = $true
+                    $TextLines++
+
                 }
 
-                # Add first word of Events Summary field
-                if ($EventInfo.Text.Msg.Length -gt 0) {
-                    # Prefix line available
-                    $EventInfo.Text.Msg = $EventInfo.Text.Msg + "|" + $($EventFilter.$Category.TXTColor[$i]) + ";" + $(Convert-Trim-String $Event.Summary.Split(" ")[0] -Length $Config.maxCharsPerLine)
-                    $TextLines++
+                # Start creating the text string with a placeholder for the number of lines
+                $EventInfo.Text.Msg = "LC_Ph"
+                if ($HasPrefix) {
+                    $EventInfo.Text.Msg = $EventInfo.Text.Msg + "|" + $(Convert-Trim-String $EventFilter.$Category.TXTPrefix[$i] -Length ($Config.maxCharsPerLine + 2)) # TXTPrefix also contains color, thus +2 chars
                 }
-                else {
-                    # No prefix line, this is the first line
-                    $EventInfo.Text.Msg = "LC_Ph|" + $($EventFilter.$Category.TXTColor[$i]) + ";" + $(Convert-Trim-String $Event.Summary.Split(" ")[0] -Length $Config.maxCharsPerLine)
-                    $TextLines = 1
+
+                # Add allowed/available amount of words of the Events Summary field (one word per line)
+                $SummaryWordCount = $Event.Summary.Split(" ").Count
+                for ($word = 0; $word -lt $SummaryWordCount; $word++) {
+                    $EventInfo.Text.Msg = $EventInfo.Text.Msg + "|" + $($EventFilter.$Category.TXTColor[$i]) + ";" + $(Convert-Trim-String $Event.Summary.Split(" ")[$word] -Length $Config.maxCharsPerLine)
+                    $TextLines++
+                    if ($TextLines -eq $Config.maxLines) {
+                        # All lines filled
+                        break
+                    }
                 }
                 
-                if ($EventFilter.$Category.TXTSuffix[$i].Length -gt 0) {
+                if ($HasSuffix) {
                     $EventInfo.Text.Msg = $EventInfo.Text.Msg + "|" + $(Convert-Trim-String $EventFilter.$Category.TXTSuffix[$i] -Length ($Config.maxCharsPerLine + 2)) # TXTSuffix also contains color, thus +2 chars
-                    $TextLines++
                 }
-                # Replace Linecount placeholder to finish the final text message for Reminderall
+                # Replace Linecount placeholder to finish the final text message for Rememberall
                 $EventInfo.Text.Msg = $EventInfo.Text.Msg.replace('LC_Ph', "$($TextLines)")
                 # Get desired LED color
                 $EventInfo.Reminder.LEDColor = $EventFilter.$Category.LEDColor[$i]
@@ -304,7 +321,7 @@ ForEach ($CalName in $Calendars.Keys) {
 
     # Fetch regular events within the next PreviewPeriod+CosyReminderPeriod from current calendar..
     $CheckPeriod = $Config.PreviewPeriod + $Config.CosyReminderPeriod
-    $ThisCalRegularEvents = $Calendar.Events | Where-Object { $_.DTStart -gt [iCal.iCalDateTime]::Now -and $_.DTStart -lt [iCal.iCalDateTime]::Now.AddHours($CheckPeriod) }
+    $ThisCalRegularEvents = $Calendar.Events | Where-Object { $_.DTStart.Local -gt [DateTime]::Now -and $_.DTStart.Local -lt [DateTime]::Now.AddHours($CheckPeriod) }
     # Save all events as possible candidates to a simplified Hashtable
     if ($ThisCalRegularEvents.Count -gt 0) {
         ForEach ($Event in $ThisCalRegularEvents) {
@@ -332,6 +349,13 @@ ForEach ($CalName in $Calendars.Keys) {
     }
 }
 
+# Check if there is a candidate
+if ($NextEventCandidates.Count -eq 0)
+{
+    Write-Host "No upcoming events, exiting." -ForegroundColor Yellow
+    exit 0
+}
+
 # pick the final earliest event from the candidates
 $NextEvent = $NextEventCandidates[0]
 for ($i = 1 ; $i -lt $NextEventCandidates.Count; $i++) {
@@ -352,12 +376,19 @@ if ($NextEvent.Start -lt [DateTime]::Now.AddHours($Config.CosyReminderPeriod)) {
     }
     # Only send if update is needed (new event) or ForceUpdate param set $true
     if ($Global:MqttTxtTopicMessage -ne $SendMe.Text.Msg -or $ForceUpdate) {
-        $MqttClient.Publish($MQTT.t_Txt, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Text.Msg), 1, 1) | Out-Null # Publish with QoS 1 and Retained
-        Write-Host "Text message sent to broker: $($SendMe.Text.Msg)"
-        $MqttClient.Publish($MQTT.t_Reminder, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Reminder.Msg), 1, 1) | Out-Null
-        Write-Host "Reminder message sent to broker: $($SendMe.Reminder.Msg)"
-        $MqttClient.Publish($MQTT.t_Status, [System.Text.Encoding]::ASCII.GetBytes("newEvent"), 1, 1) | Out-Null
-        Write-Host "Status message reset to newEvent."
+        if (-not $WhatIf) {
+            $MqttClient.Publish($MQTT.t_Txt, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Text.Msg), 1, 1) | Out-Null # Publish with QoS 1 and Retained
+            Write-Host "Text message sent to broker: $($SendMe.Text.Msg)"
+            $MqttClient.Publish($MQTT.t_Reminder, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Reminder.Msg), 1, 1) | Out-Null
+            Write-Host "Reminder message sent to broker: $($SendMe.Reminder.Msg)"
+            $MqttClient.Publish($MQTT.t_Status, [System.Text.Encoding]::ASCII.GetBytes("newEvent"), 1, 1) | Out-Null
+            Write-Host "Status message reset to newEvent."
+        }
+        else {
+            Write-Host "WHATIF: Send Text message to broker: $($SendMe.Text.Msg)" -ForegroundColor Magenta
+            Write-Host "WHATIF: Send Reminder message to broker: $($SendMe.Reminder.Msg)" -ForegroundColor Magenta
+            Write-Host "WHATIF: Reset Status message to newEvent." -ForegroundColor Magenta
+        }
         $EventIsActive = $true
     }
     else {
@@ -373,14 +404,24 @@ if ($NextEvent.Start -lt [DateTime]::Now.AddHours($Config.CosyReminderPeriod)) {
     }
     # Finally, handle SleepUntil for Rememberall
     $SleepUntil = $(Calculate-SleepUntil -Config $Config -ActiveEvent $EventIsActive)
-    $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
-    Write-Host "SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
+    if (-not $WhatIf) {
+        $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
+        Write-Host "SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "WHATIF: Send SleepUntil message to broker: $($SleepUntil)" -ForegroundColor Magenta
+    }
 }
 else {
     # The event is further in the future, sleep until the next ActiveReminderPeriod
     $SleepUntil = $(Calculate-SleepUntil -Config $Config -ActiveEvent $false)
-    $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
-    Write-Host "No active event, SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
+    if (-not $WhatIf) {
+        $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
+        Write-Host "No active event, SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "WHATIF: No active event, send SleepUntil message to broker: $($SleepUntil)" -ForegroundColor Magenta
+    }
 }
 
 # Wait a bit before disconnecting to ensure that the MQTT topics have been sent

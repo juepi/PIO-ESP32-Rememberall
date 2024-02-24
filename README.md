@@ -91,6 +91,11 @@ Front             |  Back
 ### v1.0.2
 - Bugfix: WiFi did not wake up after `WIFI_SLEEP_DURATION`
 - Updated readme with pushbutton functionality
+
+### v1.0.3
+- Improved Feeder script; now adds multiple words (one word per ePaper line) from the summary field of the event (up to 3 lines which can be showed on the ePaper display)
+- Feeder script has a new "WhatIf" switch parameter for testing (prints what would be sent to the MQTT broker)
   
+
 Have fun,  
 Juergen
