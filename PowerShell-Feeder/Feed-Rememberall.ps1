@@ -46,7 +46,7 @@ $Config = @{
     eventAckStr         = "ack"; # filtered string of t_Status; at match, current event has been acknowledged on the Rememberall
     ActiveReminderHours = [ordered]@{
         Start = @(5, 18); # Rememberall will be active during these times
-        End   = @(7, 20)  # example: from 5:00 to 8:59 and 17:00 to 21:59; enter desired ranges **ascending**
+        End   = @(7, 20)  # example: from 5:00 to 7:59 and 18:00 to 20:59; enter desired ranges **ascending**
     };
 }
 
@@ -73,7 +73,7 @@ $EventFilter = [ordered]@{
         TXTSuffix = @('') # Text line suffixed
     };
     Household = @{
-        Regex     = @('Biomüll', 'Restmüll', 'gelber'); # you can have multiple types in a category
+        Regex     = @('Biomüll', 'Restmüll', 'gelber Sack'); # you can have multiple types in a category
         LEDColor  = @('0x00FF00', '0x0000FF', '0xFFFF00'); # with different colors/prefixes/suffixes assigned
         TXTColor  = @(1, 1, 1);
         TXTPrefix = @('0;Tonne' , '0;Tonne', '');
@@ -350,71 +350,78 @@ ForEach ($CalName in $Calendars.Keys) {
 }
 
 # Check if there is a candidate
-if ($NextEventCandidates.Count -eq 0)
-{
-    Write-Host "No upcoming events, exiting." -ForegroundColor Yellow
-    exit 0
-}
-
-# pick the final earliest event from the candidates
-$NextEvent = $NextEventCandidates[0]
-for ($i = 1 ; $i -lt $NextEventCandidates.Count; $i++) {
-    if ($NextEvent.Start -gt $NextEventCandidates[$i].Start) {
-        $NextEvent = $NextEventCandidates[$i]
-    }
-}
-
-Write-Host "Handling Event [$($NextEvent.Summary)] starting at $($NextEvent.Start)" -ForegroundColor Green
-
-# Check if the event is within the Cosy reminder period
-if ($NextEvent.Start -lt [DateTime]::Now.AddHours($Config.CosyReminderPeriod)) {
-    #Filter category and extract required text from events "Summary" field
-    $SendMe = Get-EventInfo -Event $NextEvent -EventFilter $EventFilter
-    # Verify we've got valid results
-    if (-not ($SendMe.Text.Msg.Length -gt 0 -and $SendMe.Reminder.Msg.Length -gt 0)) {
-        Write-Error "Invalid results returned from Get-EventInfo!" -ErrorAction Stop
-    }
-    # Only send if update is needed (new event) or ForceUpdate param set $true
-    if ($Global:MqttTxtTopicMessage -ne $SendMe.Text.Msg -or $ForceUpdate) {
-        if (-not $WhatIf) {
-            $MqttClient.Publish($MQTT.t_Txt, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Text.Msg), 1, 1) | Out-Null # Publish with QoS 1 and Retained
-            Write-Host "Text message sent to broker: $($SendMe.Text.Msg)"
-            $MqttClient.Publish($MQTT.t_Reminder, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Reminder.Msg), 1, 1) | Out-Null
-            Write-Host "Reminder message sent to broker: $($SendMe.Reminder.Msg)"
-            $MqttClient.Publish($MQTT.t_Status, [System.Text.Encoding]::ASCII.GetBytes("newEvent"), 1, 1) | Out-Null
-            Write-Host "Status message reset to newEvent."
+if ($NextEventCandidates.Count -gt 0) {
+    # pick the final earliest event from the candidates
+    $NextEvent = $NextEventCandidates[0]
+    for ($i = 1 ; $i -lt $NextEventCandidates.Count; $i++) {
+        if ($NextEvent.Start -gt $NextEventCandidates[$i].Start) {
+            $NextEvent = $NextEventCandidates[$i]
         }
-        else {
-            Write-Host "WHATIF: Send Text message to broker: $($SendMe.Text.Msg)" -ForegroundColor Magenta
-            Write-Host "WHATIF: Send Reminder message to broker: $($SendMe.Reminder.Msg)" -ForegroundColor Magenta
-            Write-Host "WHATIF: Reset Status message to newEvent." -ForegroundColor Magenta
-        }
-        $EventIsActive = $true
     }
-    else {
-        Write-Host "MQTT event topics already up-to-date, check if acknowledged by user.." -ForegroundColor Green
-        if ($Global:MqttStatusTopicMessage -eq $Config.eventAckStr) {
-            Write-Host "The current event has been acknowledged on the Rememberall. Ignoring this event." -ForegroundColor Yellow
-            $EventIsActive = $false
+
+    Write-Host "Handling Event [$($NextEvent.Summary)] starting at $($NextEvent.Start)" -ForegroundColor Green
+
+    # Check if the event is within the Cosy reminder period
+    if ($NextEvent.Start -lt [DateTime]::Now.AddHours($Config.CosyReminderPeriod)) {
+        #Filter category and extract required text from events "Summary" field
+        $SendMe = Get-EventInfo -Event $NextEvent -EventFilter $EventFilter
+        # Verify we've got valid results
+        if (-not ($SendMe.Text.Msg.Length -gt 0 -and $SendMe.Reminder.Msg.Length -gt 0)) {
+            Write-Error "Invalid results returned from Get-EventInfo!" -ErrorAction Stop
         }
-        else {
-            Write-Host "No." -ForegroundColor Green
+        # Only send if update is needed (new event) or ForceUpdate param set $true
+        if ($Global:MqttTxtTopicMessage -ne $SendMe.Text.Msg -or $ForceUpdate) {
+            if (-not $WhatIf) {
+                $MqttClient.Publish($MQTT.t_Txt, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Text.Msg), 1, 1) | Out-Null # Publish with QoS 1 and Retained
+                Write-Host "Text message sent to broker: $($SendMe.Text.Msg)"
+                $MqttClient.Publish($MQTT.t_Reminder, [System.Text.Encoding]::ASCII.GetBytes($SendMe.Reminder.Msg), 1, 1) | Out-Null
+                Write-Host "Reminder message sent to broker: $($SendMe.Reminder.Msg)"
+                $MqttClient.Publish($MQTT.t_Status, [System.Text.Encoding]::ASCII.GetBytes("newEvent"), 1, 1) | Out-Null
+                Write-Host "Status message reset to newEvent."
+            }
+            else {
+                Write-Host "WHATIF: Send Text message to broker: $($SendMe.Text.Msg)" -ForegroundColor Magenta
+                Write-Host "WHATIF: Send Reminder message to broker: $($SendMe.Reminder.Msg)" -ForegroundColor Magenta
+                Write-Host "WHATIF: Reset Status message to newEvent." -ForegroundColor Magenta
+            }
             $EventIsActive = $true
         }
-    }
-    # Finally, handle SleepUntil for Rememberall
-    $SleepUntil = $(Calculate-SleepUntil -Config $Config -ActiveEvent $EventIsActive)
-    if (-not $WhatIf) {
-        $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
-        Write-Host "SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
+        else {
+            Write-Host "MQTT event topics already up-to-date, check if acknowledged by user.." -ForegroundColor Green
+            if ($Global:MqttStatusTopicMessage -eq $Config.eventAckStr) {
+                Write-Host "The current event has been acknowledged on the Rememberall. Ignoring this event." -ForegroundColor Yellow
+                $EventIsActive = $false
+            }
+            else {
+                Write-Host "No." -ForegroundColor Green
+                $EventIsActive = $true
+            }
+        }
+        # Finally, handle SleepUntil for Rememberall
+        $SleepUntil = $(Calculate-SleepUntil -Config $Config -ActiveEvent $EventIsActive)
+        if (-not $WhatIf) {
+            $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
+            Write-Host "SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "WHATIF: Send SleepUntil message to broker: $($SleepUntil)" -ForegroundColor Magenta
+        }
     }
     else {
-        Write-Host "WHATIF: Send SleepUntil message to broker: $($SleepUntil)" -ForegroundColor Magenta
+        # The event is further in the future, sleep until the next ActiveReminderPeriod
+        $SleepUntil = $(Calculate-SleepUntil -Config $Config -ActiveEvent $false)
+        if (-not $WhatIf) {
+            $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
+            Write-Host "No active event, SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "WHATIF: No active event, send SleepUntil message to broker: $($SleepUntil)" -ForegroundColor Magenta
+        }
     }
 }
 else {
-    # The event is further in the future, sleep until the next ActiveReminderPeriod
-    $SleepUntil = $(Calculate-SleepUntil -Config $Config -ActiveEvent $false)
+    Write-Host "No upcoming events, sleeping for $($Config.PreviewPeriod) hours" -ForegroundColor Yellow
+    $SleepUntil = $(Get-EpochFromNow -AddSeconds $($Config.PreviewPeriod * 3600))
     if (-not $WhatIf) {
         $MqttClient.Publish($MQTT.t_SleepUntil, [System.Text.Encoding]::ASCII.GetBytes($SleepUntil), 1, 1) | Out-Null
         Write-Host "No active event, SleepUntil message sent to broker: $($SleepUntil)" -ForegroundColor Yellow

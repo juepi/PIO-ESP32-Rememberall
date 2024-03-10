@@ -1,6 +1,7 @@
 # PIO-ESP32-Rememberall
 The Rememberall - equipped with a WS2812 LED ring and a ePaper display - will help you keeping track of easily forgotten events.  
 The project includes a PowerShell based feeder script which allows you to load events from multiple iCal calendar files (or URLs, in example google calendars), find the next upcoming event and send the processed data to your MQTT broker where the Rememberall will pick it up.  
+The Rememberall supports 2 types of "active reminders", a "cosy" reminder which shows a slow light wave on the LED ring, and a more agressive reminder with a faster frequency.  
 **Note:** This project requires a NTP server (either local or internet).
 
 ## Design Goals
@@ -29,16 +30,18 @@ The `LineCount` must be an integer of 1-3 indicating how much text lines the mes
 **Attention:** The characters `|` and `;` must not be used in the `Summary` field (description) of your calendar events, as they are used as seperators. If you are using the provided PoSh feeder, the first word of the `Summary` field will be used to describe the event. Note that the text will be truncated to 10 characters, which can be displayed per ePaper line.
 
 ### /Your/Topic/Tree/eventReminder
-This topic contains the deadline (which equals the start date of an event), the start time of the 2 reminder periods and the color which the LED ring should show for the current event. Example:  
+This topic contains the deadline (which equals to the start date of an event), the start time of the 2 reminder periods and the color which the LED ring should show for the current event.   ``DeadLineEpoch|CosyReminderStartEpoch|AggroReminderStartEpoch|RGB-Color``  
+Example:  
 ``65ab999f|65aa481f|65aaf0df|0xFF00FF``  
 Timestamps are encoded in **Unix Epoch time** and in **hexadecimal base** to shorten the strings. The LED color is encoded as `0xRRGGBB`.  
 **Note:** You should use powerful colors, i've experienced that bright colors tend to look like white on the ring.
 
 ### /Your/Topic/Tree/Status
-This topic is basically used as a "reminder flag" for the Rememberall. You can use the button on the Rememberall to acknowledge the current event (short press on the button), where the following will happen:
+This topic is basically used as a "reminder flag" for the Rememberall. You can use the button on the Rememberall to acknowledge the current event (double click on the button), where the following will happen:
 * Rememberall sets the `Status` topic to `ack` (retained)
 * Rememberall stops reminding by disabling the LED ring and clearing the display
 * Rememberall will go to sleep for `WIFI_SLEEP_DURATION` (30 minutes by default)
+* The feeder script will skip reminders for this event and adopt `SleepUntil` accordingly
 
 ## Configuration
 Beside the basic build / flash configuration described in the [PIO-ESP32-Template README](https://github.com/juepi/PIO-ESP32-Template), you will need to configure:
@@ -67,11 +70,12 @@ Place the 2 DLL files in a `lib` subdirectory of the place where the feeder scri
 **Note:** In order to make the german "umlauts conversion" work correctly, you need to make sure that the script is saved **UTF8-BOM** encoded locally.
 
 ## Pushbutton functions
-The (optional) pushbutton has 2 functions:
-* Short Press: acknowledge the current event as described above
+The (optional) pushbutton has 3 functions:
+* Short Press: Skip current active reminder period by sleeping for `BUT_SLEEP_DURATION` (defaults to 6hrs)
+* Double Click: acknowledge the current event as described above
 * Long Press: Toggle WiFi up/down (useful e.g. for OTA-flashing)
 
-Note that the pushbutton cannot wake the ESP while in DeepSleep, so the button will only react during active reminding periods.
+Note that the pushbutton will not wake the ESP while in DeepSleep, so the button will only react during active reminding periods.
 
 ## Photos
 Here are 2 photos from my Rememberall:
@@ -95,7 +99,13 @@ Front             |  Back
 ### v1.0.3
 - Improved Feeder script; now adds multiple words (one word per ePaper line) from the summary field of the event (up to 3 lines which can be showed on the ePaper display)
 - Feeder script has a new "WhatIf" switch parameter for testing (prints what would be sent to the MQTT broker)
-  
 
+### v1.0.4
+- Changed button behavior
+- Added ability to "skip" an active reminder period with a single button click (just sends ESP to sleep for 6 hours)
+- Minor bugfix in Feeder script
+- Bugfix: ESP did not clear the screen after elapsed events when a valid `SleepUntil` was set
+  
+  
 Have fun,  
 Juergen

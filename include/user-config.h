@@ -48,6 +48,7 @@
 // Button Configuration
 //
 #define BUTTON_GPIO 12 // other wire of the pushbutton needs to be wired to GND - shorting the button pulls GPIO LOW
+#define BUT_SLEEP_DURATION 21600 // Sleep for 6hrs on button single click
 
 // Globar char arrays for topics containing ePaper text and appointment infos
 // larger MQTT_MAX_MSG_SIZE required
@@ -91,6 +92,7 @@ extern void user_loop();
 // Button callback function declarations
 void ButtonClickCB();
 void ButtonLongPressCB();
+void ButtonDoubleClickCB();
 
 // Display text drawing function with overloading up to 3 lines
 void DisplayText(char *Text, uint16_t Color);
@@ -107,6 +109,7 @@ typedef enum
     B_VOID,        // no action
     B_WIFI_TOGGLE, // toggle WiFi (long button press)
     B_ACK_EVENT,   // acknowledge current event (short button press)
+    B_SLEEP,
 } ButtonActions;
 
 //

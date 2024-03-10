@@ -38,9 +38,9 @@ void user_setup()
   // link the long-press function to be called on a long-press event.
   Button.attachLongPressStart(ButtonLongPressCB);
   // Double click - unused
-  // Button.attachDoubleClick(ButtonDoubleClickCB);
-  // set 80 msec. debouncing time. Default is 50 msec.
-  Button.setDebounceMs(80);
+  Button.attachDoubleClick(ButtonDoubleClickCB);
+  // set 50ms debouncing time
+  Button.setDebounceMs(50);
 
   // Init Display w/o serial diag and custom SPI pinout
   spi2.begin(D_CLK, D_MISO, D_MOSI, D_CS);
@@ -56,6 +56,7 @@ void user_loop()
 {
   static bool LedRingEnabled = false;
   static bool EventAcknowledged = false;
+  static bool ButtonActionEventAck = false;
   static uint32_t LastTxtMsgDecoded = 0;
   static uint32_t LastReminderMsgDecoded = 0;
   static uint32_t LastStatusMsgDecoded = 0;
@@ -87,6 +88,7 @@ void user_loop()
     ExecButtonActn = B_VOID;
     break;
   case B_ACK_EVENT:
+    ButtonActionEventAck = true;
     EventAcknowledged = true;
     if (NetState == NET_UP)
     {
@@ -95,16 +97,16 @@ void user_loop()
       {
         MqttDelay(250);
       }
-      // Add some more delay just to make sure..
-      MqttDelay(300);
-      // ..and sleep for a while
-      esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
     }
     else
     {
-      // Force WiFi restart
+      // Force immediate WiFi restart
       NextWiFiStart = 0;
     }
+    ExecButtonActn = B_VOID;
+    break;
+  case B_SLEEP:
+    esp_deep_sleep((uint64_t)BUT_SLEEP_DURATION * 1000000ULL);
     ExecButtonActn = B_VOID;
     break;
   }
@@ -159,7 +161,6 @@ void user_loop()
         digitalWrite(EMB_PWS_U2, HIGH); // Power up LED ring
         delay(20);
         LedRingEnabled = true;
-        // DEBUG_PRINTLN("COSY; LEDColor = " + String(LocalEventInfo.LedColor, HEX));
       }
       Cosy = true;
     }
@@ -171,7 +172,6 @@ void user_loop()
         digitalWrite(EMB_PWS_U2, HIGH); // Power up LED ring
         delay(20);
         LedRingEnabled = true;
-        // DEBUG_PRINTLN("AGGRO; LEDColor = " + String(LocalEventInfo.LedColor, HEX));
       }
       Cosy = false;
     }
@@ -233,10 +233,11 @@ void user_loop()
     LastReminderMsgDecoded = 0;
     LastTxtMsgDecoded = 0;
     LastStatusMsgDecoded = 0;
-    if (EventAcknowledged)
+    if (ButtonActionEventAck)
     {
+      // Send event confirmation to broker (and make sure it's been sent) when button was double-clicked
+      ButtonActionEventAck = false;
       delay(200);
-      // Send event confirmation to broker (and make sure it's been sent)
       while (!mqttClt.publish(Status_topic, String("ack").c_str(), true))
       {
         MqttDelay(250);
@@ -250,21 +251,17 @@ void user_loop()
   // In case all network traffic has been handled, WiFi can be disabled for WIFI_SLEEP_DURATION
   else if (LastStatusMsgDecoded > 0 && LastReminderMsgDecoded > 0 && LastTxtMsgDecoded > 0 && NTPSyncCounter > 0 && NetState != NET_DOWN)
   {
-    // Check if the currently handled event has ended or is already acknowledged, in that case DeepSleep for WIFI_SLEEP_DURATION
-    if (EpochTime > LocalEventInfo.Deadline || EventAcknowledged)
-    {
-      esp_deep_sleep((uint64_t)WIFI_SLEEP_DURATION * 1000000ULL);
-    }
-    else
-    {
-      wifi_down();
-      NextWiFiStart = EpochTime + (time_t)WIFI_SLEEP_DURATION;
-    }
+    wifi_down();
+    NextWiFiStart = EpochTime + (time_t)WIFI_SLEEP_DURATION;
+    // If requested, ESP may go to sleep at the end of this main loop
+    DelayDeepSleep = false;
   }
 
   // If Infos are missing, add some delay for WiFi background tasks
   if (LastStatusMsgDecoded == 0 || LastReminderMsgDecoded == 0 || LastTxtMsgDecoded == 0)
   {
+    // Delay DeepSleep until everything has been received
+    DelayDeepSleep = true;
 #ifdef ONBOARD_LED
     ToggleLed(LED, 50, 2);
 #else
@@ -292,14 +289,20 @@ void user_loop()
 //
 void ButtonClickCB()
 {
-  // Toggle LedRing on short press
-  ExecButtonActn = B_ACK_EVENT;
+  // Skip reminding and sleep for a while
+  ExecButtonActn = B_SLEEP;
 }
 
 void ButtonLongPressCB()
 {
   // Toggle WiFi on/off on long press
   ExecButtonActn = B_WIFI_TOGGLE;
+}
+
+void ButtonDoubleClickCB()
+{
+  // Toggle WiFi on/off on long press
+  ExecButtonActn = B_ACK_EVENT;
 }
 
 //

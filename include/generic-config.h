@@ -11,8 +11,8 @@
 // Firmware Version Information
 //
 #define FIRMWARE_NAME "PIO-ESP32-Rememberall"
-#define FIRMWARE_VERSION "1.0.3" // Add firmware version info of your custom code here
-#define TEMPLATE_VERSION "1.3.2"
+#define FIRMWARE_VERSION "1.0.4" // Add firmware version info of your custom code here
+#define TEMPLATE_VERSION "1.3.3"
 
 //
 // Serial Output configuration

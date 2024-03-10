@@ -107,20 +107,20 @@ void loop()
     }
   }
   // Prints formatted date and time
-  //DEBUG_PRINTLN(&TimeInfo, "%A, %B %d %Y %H:%M:%S");
+  // DEBUG_PRINTLN(&TimeInfo, "%A, %B %d %Y %H:%M:%S");
 #endif
 #ifdef MEASURE_SLEEP_CLOCK_SKEW
-    static bool SkewDataSent = false;
-    if (esp_reset_reason() == ESP_RST_DEEPSLEEP)
+  static bool SkewDataSent = false;
+  if (esp_reset_reason() == ESP_RST_DEEPSLEEP)
+  {
+    // Woke up from deepsleep, output some helpers to allow calculation of SLEEPT_CORR_FACT
+    if (NTPSyncCounter > 0 && !SkewDataSent)
     {
-      // Woke up from deepsleep, output some helpers to allow calculation of SLEEPT_CORR_FACT
-      if (NTPSyncCounter > 0 && !SkewDataSent)
-      {
-        mqttClt.publish(boot_dur_topic, String(millis()).c_str(), false);
-        mqttClt.publish(end_sleep_topic, String(EpochTime).c_str(), false);
-        SkewDataSent = true;
-      }
+      mqttClt.publish(boot_dur_topic, String(millis()).c_str(), false);
+      mqttClt.publish(end_sleep_topic, String(EpochTime).c_str(), false);
+      SkewDataSent = true;
     }
+  }
 #endif
 
 //
@@ -145,7 +145,7 @@ void loop()
 // Handle SleepUntil
 //
 #ifdef SLEEP_UNTIL
-  if (NTPSyncCounter > 0 && EpochTime < SleepUntilEpoch)
+  if (NTPSyncCounter > 0 && EpochTime < SleepUntilEpoch && !DelayDeepSleep)
   {
     time(&EpochTime);
     // System time synced and received sleep-until time in the future -> OK!
@@ -167,10 +167,13 @@ void loop()
 // Handle DeepSleep
 //
 #ifdef E32_DEEP_SLEEP
-  // disconnect WiFi and go to sleep
-  DEBUG_PRINTLN("Good night for " + String(DS_DURATION_MIN) + " minutes.");
-  wifi_down();
-  esp_deep_sleep((uint64_t)DS_DURATION_MIN * 60000000ULL);
+  if (!DelayDeepSleep)
+  {
+    // disconnect WiFi and go to sleep
+    DEBUG_PRINTLN("Good night for " + String(DS_DURATION_MIN) + " minutes.");
+    wifi_down();
+    esp_deep_sleep((uint64_t)DS_DURATION_MIN * 60000000ULL);
+  }
 #endif
 
   // First iteration of main loop finished
