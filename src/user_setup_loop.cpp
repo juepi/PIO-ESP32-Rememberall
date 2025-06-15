@@ -308,7 +308,7 @@ void ButtonDoubleClickCB()
 //
 // Print text on Display
 //
-void DisplayText(char *Text, uint16_t Color)
+void DisplayText(char *SingleLine, uint16_t Color)
 {
   // 1 is an alias for red (to shorten data in MQTT message)
   Color = (Color == 1) ? GxEPD_RED : Color;
@@ -317,7 +317,7 @@ void DisplayText(char *Text, uint16_t Color)
   Display.setTextColor(Color);
   int16_t tbx, tby;
   uint16_t tbw, tbh;
-  Display.getTextBounds(Text, 0, 0, &tbx, &tby, &tbw, &tbh);
+  Display.getTextBounds(SingleLine, 0, 0, &tbx, &tby, &tbw, &tbh);
   // center the bounding box by transposition of the origin:
   uint16_t x = ((Display.width() - tbw) / 2) - tbx;
   uint16_t y = ((Display.height() - tbh) / 2) - tby;
@@ -327,7 +327,7 @@ void DisplayText(char *Text, uint16_t Color)
   {
     Display.fillScreen(GxEPD_WHITE);
     Display.setCursor(x, y);
-    Display.print(Text);
+    Display.print(SingleLine);
   } while (Display.nextPage());
   Display.hibernate();
 }

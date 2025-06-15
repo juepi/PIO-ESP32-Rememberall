@@ -105,7 +105,12 @@ Front             |  Back
 - Added ability to "skip" an active reminder period with a single button click (just sends ESP to sleep for 6 hours)
 - Minor bugfix in Feeder script
 - Bugfix: ESP did not clear the screen after elapsed events when a valid `SleepUntil` was set
-  
+
+### v1.1.0
+- Updated all external libraries
+- Updated to [PIO-ESP32-Template v1.4.0](https://github.com/juepi/PIO-ESP32-Template)
+- Fixed a bug in `Feed-Rememberall.ps1` which sometimes caused an already acknowledged event to be treated as new
+
   
 Have fun,  
 Juergen

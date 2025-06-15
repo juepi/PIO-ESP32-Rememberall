@@ -104,7 +104,7 @@ $EventFilter = [ordered]@{
 
 # ICS Calendar sources
 $Calendars = [ordered]@{
-    gcal    = @{
+    gcal  = @{
         URL = "https://calendar.google.com/calendar/ical/xy%40gmail.com/private-xxx/basic.ics" #private google calendar URLs can be obtained in the google calendar settings
     };
     bdays = @{
@@ -307,6 +307,20 @@ function Calculate-SleepUntil {
 Clear-Variable NextEventCandidates -ErrorAction SilentlyContinue
 # Declare empty array for next event candidates
 $NextEventCandidates = @()
+
+# Ensure that we have received a Status message before we start the magic
+$StatWaitCnt = 0;
+Write-Host -NoNewline "Waiting for Status message " -ForegroundColor Green
+while ($Global:MqttStatusTopicMessage -eq "none") {
+    $StatWaitCnt++
+    Write-Host -NoNewline "." -ForegroundColor Yellow
+    if ($StatWaitCnt -gt 4) {
+        Write-Host "No Status message received, handled event will be treated as unacknowledged." -ForegroundColor Yellow
+        break
+    }
+    Start-Sleep -Seconds 3
+}
+Write-Host ""
 
 ForEach ($CalName in $Calendars.Keys) {
     # Fetch from URL (if available)

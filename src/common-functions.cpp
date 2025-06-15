@@ -18,42 +18,58 @@ void ToggleLed(int PIN, int WaitTime, int Count)
 // Function to connect to MQTT Broker and subscribe to Topics
 bool MqttConnectToBroker()
 {
-    // Reset subscribed/received Topics counters
-    int SubscribedTopics = 0;
-    for (int i = 0; i < SubscribedTopicCnt; i++)
-    {
-        MqttSubscriptions[i].Subscribed = false;
-        MqttSubscriptions[i].MsgRcvd = 0;
-    }
     bool RetVal = false;
     int ConnAttempt = 0;
     // Try to connect x times, then return error
     while (ConnAttempt < MAXCONNATTEMPTS)
     {
         DEBUG_PRINT("Connecting to MQTT broker..");
-        // Attempt to connect
         if (mqttClt.connect(MQTT_CLTNAME))
         {
             DEBUG_PRINTLN("connected");
-            RetVal = true;
-
+            // Reset subscribed/received Topics counters
+            int SubscribedTopics = 0;
+            for (int i = 0; i < SubscribedTopicCnt; i++)
+            {
+                MqttSubscriptions[i].Subscribed = false;
+                MqttSubscriptions[i].MsgRcvd = 0;
+            }
             // Subscribe to all configured Topics
-            while (SubscribedTopics < SubscribedTopicCnt)
+            while ((SubscribedTopics < SubscribedTopicCnt) && mqttClt.connected())
             {
                 for (int i = 0; i < SubscribedTopicCnt; i++)
                 {
+                    // Make sure broker is still connected to avoid looping endlessly
+                    if (!mqttClt.connected())
+                    {
+                        DEBUG_PRINTLN("Lost connection while subscribing to topics, reconnecting!");
+                        break;
+                    }
                     if (!MqttSubscriptions[i].Subscribed)
                     {
-                        if (mqttClt.subscribe(MqttSubscriptions[i].Topic))
+                        if (mqttClt.subscribe(MqttSubscriptions[i].Topic,SUB_QOS))
                         {
                             MqttSubscriptions[i].Subscribed = true;
                             SubscribedTopics++;
+                            yield();
                         }
                     }
                 }
             }
-            delay(200);
-            break;
+            if (SubscribedTopics == SubscribedTopicCnt)
+            {
+                // All done
+                mqttClt.loop();
+                delay(100);
+                RetVal = true;
+                break;
+            }
+            else
+            {
+                DEBUG_PRINTLN("Something went wrong, restarting..");
+                delay(1000);
+                ConnAttempt++;
+            }
         }
         else
         {
@@ -74,13 +90,14 @@ void MqttUpdater()
         if (MqttConnectToBroker())
         {
             // New connection to broker, fetch topics
-            // ATTN: will run endlessly if not all subscribed topics
             // have retained messages and no one posts a message (disable in platformio.ini)
             NetState = NET_UP;
-#ifdef WAIT_FOR_SUBSCRIPTIONS
-            DEBUG_PRINT("Waiting for messages..");
+            #ifdef WAIT_FOR_SUBSCRIPTIONS
+            // ATTN: only try for MAX_TOP_RCV_ATTEMPTS then end according to NETFAILACTION
+            DEBUG_PRINT("Waiting for messages from subscribed topics..");
+            int TopicRcvAttempts = 0;
             bool MissingTopics = true;
-            while (MissingTopics)
+            while (TopicRcvAttempts < MAX_TOP_RCV_ATTEMPTS)
             {
                 MissingTopics = false;
                 for (int i = 0; i < SubscribedTopicCnt; i++)
@@ -88,17 +105,45 @@ void MqttUpdater()
                     if (MqttSubscriptions[i].MsgRcvd == 0)
                     {
                         MissingTopics = true;
+                        break;
                     }
                 }
                 if (MissingTopics)
                 {
                     DEBUG_PRINT(".:T!:.");
-                    mqttClt.loop();
+                    TopicRcvAttempts++;
+                    if (!mqttClt.loop())
+                    {
+                        DEBUG_PRINTLN("  Lost connection to broker while waiting for topics, reconnecting.");
+                        MqttConnectToBroker();
+                    }
 #ifdef ONBOARD_LED
                     ToggleLed(LED, 50, 2);
 #else
                     delay(100);
 #endif
+                }
+                else
+                {
+                    DEBUG_PRINTLN("");
+                    DEBUG_PRINTLN("Messages for all subscribed topics received.");
+                    break;
+                }
+            }
+            if (MissingTopics)
+            {
+                if (NetFailAction == 0)
+                {
+#ifdef E32_DEEP_SLEEP
+                    esp_deep_sleep((uint64_t)DS_DURATION_MIN * 60000000);
+#else
+                    ESP.restart();
+#endif
+                }
+                else
+                {
+                    DEBUG_PRINTLN("Unable fetch messages for all subscribed topics, continuing offline");
+                    NetState = NET_FAIL;
                 }
             }
 #endif // WAIT_FOR_SUBSCRIPTIONS
@@ -129,6 +174,7 @@ void MqttUpdater()
     else
     {
         mqttClt.loop();
+        yield();
     }
 }
 
@@ -337,7 +383,7 @@ void MqttCallback(char *topic, byte *payload, unsigned int length)
                 break;
             case 4:
                 // Handle subscriptions of type string (copy from message_buff)
-                strcpy(MqttSubscriptions[i].stringPtr,message_buff);
+                strcpy(MqttSubscriptions[i].stringPtr, message_buff);
                 MqttSubscriptions[i].MsgRcvd++;
                 break;
             }

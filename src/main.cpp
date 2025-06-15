@@ -21,14 +21,23 @@ void loop()
   static unsigned long duration_user_loop = 0;
 #endif
   static unsigned long netfail_reconn_millis = 0;
-  static unsigned long Next_Mqtt_Publish = 0;
+  static unsigned int netfail_reconn_tries = 0;
+  // Uptime calculation
+  static unsigned long oldMillis = 0;
+
+  // Handle Uptime counter
+  if ((millis() - oldMillis) >= 1000)
+  {
+    oldMillis = millis();
+    UptimeSeconds++;
+  }
 
 //
 // Handle local tasks
 //
 #ifdef READVCC
   // Read VCC every 10 seconds
-  // ADC draws quite some power, so don't run too often
+  // AD conversion draws quite some power, so don't run too often
   static unsigned long Next_VCC_ADC = 0;
   if (millis() > Next_VCC_ADC)
   {
@@ -45,21 +54,38 @@ void loop()
     // Currently no network available, try to recover
     if (millis() >= netfail_reconn_millis)
     {
+      if (!WiFi.isConnected())
+      {
+        // WiFi down, try to restart WiFi
+        wifi_down();
+        delay(100);
+        wifi_up();
+        delay(100);
+      }
+      // and try to reconnect to Broker
       if (WiFi.isConnected())
       {
-        // Try to reconnect to Broker
         MqttUpdater();
       }
       if (NetState == NET_FAIL)
       {
-        // Still no network available, try to recover every NET_RECONNECT_INTERVAL
+        // Still no network/broker available, wait for NET_RECONNECT_INTERVAL
         netfail_reconn_millis = millis() + NET_RECONNECT_INTERVAL;
+        netfail_reconn_tries++;
+#ifdef MAX_NETFAIL_RECONN
+        if (netfail_reconn_tries > MAX_NETFAIL_RECONN)
+        {
+          // we've tried long enough, let's reset the ESP!
+          ESP.restart();
+        }
+#endif
       }
       else
       {
         // Recovered from network outage
         NetRecoveryMillis = millis();
         netfail_reconn_millis = 0;
+        netfail_reconn_tries = 0;
       }
     }
   }
@@ -80,6 +106,7 @@ void loop()
     }
 #ifdef READVCC
     // Publish VCC to MQTT
+    static unsigned long Next_Mqtt_Publish = 0;
     if (millis() >= Next_Mqtt_Publish)
     {
       mqttClt.publish(vcc_topic, String(VCC).c_str(), true);
@@ -89,12 +116,9 @@ void loop()
     }
 #endif
   }
-
 #ifdef NTP_CLT
-  // Update time vars also when WiFi is off
+  // Always update time variables, also when WiFi is off
   time(&EpochTime);
-  // Update time variables with a timeout of 200ms
-  // getLocalTime() doesn't normally seem to cause delay..
   getLocalTime(&TimeInfo, 200);
   if (TimeInfo.tm_year > 2023)
   {
@@ -139,6 +163,7 @@ void loop()
   }
 #else
   user_loop();
+  yield();
 #endif
 
 //

@@ -18,8 +18,14 @@
 #define MQTT_CLTNAME TEXTIFY(CLTNAME)
 // Maximum connection attempts to MQTT broker before going to sleep
 #define MAXCONNATTEMPTS 3
+#ifdef WAIT_FOR_SUBSCRIPTIONS
+// Maximum retry attempts to receive messages for all subscribed topics; ESP will continue according to NET_OUTAGE setting afterwards
+// default setting of 300 should try for ~30sec to fetch messages for all subscribed topics
+#define MAX_TOP_RCV_ATTEMPTS 300
+#endif
 // Message buffer for incoming Data from MQTT subscriptions
 // increase if you receive larger messages for subscribed topics
+// alternatively defined in user-config.h
 #ifndef MQTT_MAX_MSG_SIZE
 #define MQTT_MAX_MSG_SIZE 20
 #endif
@@ -27,12 +33,18 @@ extern char message_buff[MQTT_MAX_MSG_SIZE];
 
 // MQTT Topic Tree prepended to all topics
 // ATTN: Must end with "/"!
+// alternatively defined in user-config.h
 #ifndef TOPTREE
 #define TOPTREE "HB7/Test/"
 #endif
 
 // Default interval to publish MQTT data in seconds (currently used for VCC if enabled)
 #define MQTT_PUB_INTERVAL 900
+
+// Default QoS for MQTT subscriptions (see platformio.ini)
+#ifndef SUB_QOS
+#define SUB_QOS 0
+#endif
 
 //
 // OTA-Update MQTT Topics and corresponding global vars

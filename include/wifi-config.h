@@ -26,12 +26,12 @@ extern const char *password;
 // Behavior on network or MQTT broker failures
 // ============================================
 extern const int NetFailAction;         // Behavior on network / MQTT broker outages (defined in platformio.ini)
-extern int NetState;                 // Global int defining network status (Up/down/failure)
+extern int NetState;                    // Global int defining network status (Up/down/failure)
 extern unsigned long NetRecoveryMillis; // store MCU "uptime" of the last network recovery (informational only)
 #define NET_RECONNECT_INTERVAL 60000    // try to reconnect to WiFi / Broker every minute at Netstate failure
 
 // Defines for NetStates
-#define NET_UP 0 // WiFi and MQTT broker connected
+#define NET_UP 0   // WiFi and MQTT broker connected
 #define NET_DOWN 1 // WiFi disabled
 #define NET_FAIL 2 // WiFi or MQTT broker failure
 
